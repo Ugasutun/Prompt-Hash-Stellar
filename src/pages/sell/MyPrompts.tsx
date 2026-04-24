@@ -224,6 +224,7 @@ const MyPrompts = () => {
                   </div>
                   <div className="flex gap-3">
                     <Input
+                      aria-label={`Price for ${prompt.title}`}
                       value={mergedDrafts[prompt.id.toString()]}
                       onChange={(event) =>
                         setPriceDrafts((current) => ({
