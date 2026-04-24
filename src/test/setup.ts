@@ -1,102 +1,31 @@
-import "@testing-library/jest-dom/vitest";
-import { afterEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import '@testing-library/jest-dom';
+import { vi } from 'vitest';
+import { Buffer } from 'buffer';
+import * as nodeCrypto from 'node:crypto';
 
-const walletModuleMocks = vi.hoisted(() => ({
-  connectWallet: vi.fn(),
-  disconnectWallet: vi.fn(),
-  fetchBalance: vi.fn().mockResolvedValue([]),
-  wallet: {
-    signTransaction: vi.fn(),
-    signMessage: vi.fn(),
-    setWallet: vi.fn(),
-    getAddress: vi.fn().mockResolvedValue({ address: "" }),
-    getNetwork: vi.fn().mockResolvedValue({
-      network: "TESTNET",
-      networkPassphrase: "Test SDF Network ; September 2015",
-    }),
-    disconnect: vi.fn(),
-  },
-}));
+// 1. Force Buffer Polyfill
+globalThis.Buffer = Buffer;
 
-vi.mock("@/util/wallet", () => walletModuleMocks);
-
-afterEach(() => {
-  cleanup();
-  vi.clearAllMocks();
+// 2. Force Crypto Polyfill (The proper way to bypass "getter-only" restriction)
+Object.defineProperty(globalThis, 'crypto', {
+  value: nodeCrypto.webcrypto,
+  configurable: true,
+  writable: true,
 });
 
-class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-
-if (!("ResizeObserver" in globalThis)) {
-  Object.defineProperty(globalThis, "ResizeObserver", {
+// 3. Mock window features for JSDOM
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'matchMedia', {
     writable: true,
-    value: ResizeObserverMock,
+    value: vi.fn().mockImplementation(query => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(), 
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
   });
-}
-
-if (!("PointerEvent" in globalThis) && "MouseEvent" in globalThis) {
-  Object.defineProperty(globalThis, "PointerEvent", {
-    writable: true,
-    value: MouseEvent,
-  });
-}
-
-if (typeof window !== "undefined") {
-  if (!window.matchMedia) {
-    Object.defineProperty(window, "matchMedia", {
-      writable: true,
-      value: vi.fn().mockImplementation((query: string) => ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      })),
-    });
-  }
-
-  if (!window.scrollTo) {
-    Object.defineProperty(window, "scrollTo", {
-      writable: true,
-      value: vi.fn(),
-    });
-  }
-}
-
-if (typeof HTMLElement !== "undefined") {
-  if (!HTMLElement.prototype.scrollIntoView) {
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      writable: true,
-      value: vi.fn(),
-    });
-  }
-
-  if (!HTMLElement.prototype.hasPointerCapture) {
-    Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
-      writable: true,
-      value: vi.fn(() => false),
-    });
-  }
-
-  if (!HTMLElement.prototype.setPointerCapture) {
-    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
-      writable: true,
-      value: vi.fn(),
-    });
-  }
-
-  if (!HTMLElement.prototype.releasePointerCapture) {
-    Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
-      writable: true,
-      value: vi.fn(),
-    });
-  }
 }
