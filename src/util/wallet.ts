@@ -32,7 +32,7 @@ export const fetchBalance = async (address: string) => {
 
   try {
     const { balances } = await horizon.accounts().accountId(address).call();
-    return balances;
+    return { ok: true, balances };
   } catch (e) {
     // Re-throw the error so callers can handle it appropriately
     console.error("Error fetching balance:", e);
@@ -40,7 +40,7 @@ export const fetchBalance = async (address: string) => {
   }
 };
 
-export type Balance = Awaited<ReturnType<typeof fetchBalance>>[number];
+export type Balance = Awaited<ReturnType<typeof fetchBalance>>["balances"][number];
 
 export const wallet = kit;
 
