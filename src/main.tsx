@@ -3,11 +3,10 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
 import "@stellar/design-system/build/styles.min.css";
-import { WalletProvider } from "./providers/WalletProvider.tsx";
+import { WalletProvider } from "./providers/WalletProvider.tsx"; 
+import { TransactionProvider } from "./components/TransactionProvider.tsx";
 import { NotificationProvider } from "./providers/NotificationProvider.tsx";
 import { ContractSyncProvider } from "./providers/ContractSyncProvider.tsx";
-import { BrowserRouter } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,16 +19,18 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
-    <NotificationProvider>
-      <QueryClientProvider client={queryClient}>
-        <ContractSyncProvider>
-          <WalletProvider>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
-          </WalletProvider>
-        </ContractSyncProvider>
-      </QueryClientProvider>
-    </NotificationProvider>
+     <NotificationProvider>
+    <QueryClientProvider client={queryClient}>
+    <ContractSyncProvider>
+      <TransactionProvider>
+        <WalletProvider>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </WalletProvider>
+      </TransactionProvider>
+    </ContractSyncProvider>
+  </QueryClientProvider>
+</NotificationProvider>
   </StrictMode>,
 );
