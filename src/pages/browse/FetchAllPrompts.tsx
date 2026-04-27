@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useQueries, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
@@ -20,6 +20,7 @@ import { PromptCard } from "./PromptCard";
 import { PromptModal } from "./PromptModal";
 
 const ITEMS_PER_PAGE = 9;
+const ENABLE_INFINITE_SCROLL = true;
 
 const isMarketplaceConfigured = Boolean(
   browserStellarConfig.promptHashContractId &&
@@ -48,6 +49,7 @@ const FetchAllPrompts = ({
     null,
   );
   const [currentPage, setCurrentPage] = useState(1);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   const promptsQuery = useQuery({
     queryKey: ["marketplace-prompts"],
@@ -56,6 +58,24 @@ const FetchAllPrompts = ({
       return getAllPrompts(browserStellarConfig);
     },
   });
+
+  // Infinite scroll observer
+  useEffect(() => {
+    if (!ENABLE_INFINITE_SCROLL || !loadMoreRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const target = entries[0];
+        if (target.isIntersecting && currentPage < totalPages) {
+          setCurrentPage((prev) => prev + 1);
+        }
+      },
+      { threshold: 0.1, rootMargin: "100px" }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [currentPage]);
 
   const accessQueries = useQueries({
     queries: (address ? (promptsQuery.data ?? []) : []).map((prompt) => ({
@@ -113,10 +133,14 @@ const FetchAllPrompts = ({
     1,
     Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE),
   );
-  const currentPrompts = filteredPrompts.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE,
-  );
+  
+  // For infinite scroll, show all items up to current page
+  const currentPrompts = ENABLE_INFINITE_SCROLL
+    ? filteredPrompts.slice(0, currentPage * ITEMS_PER_PAGE)
+    : filteredPrompts.slice(
+        (currentPage - 1) * ITEMS_PER_PAGE,
+        currentPage * ITEMS_PER_PAGE,
+      );
 
   useEffect(() => {
     setCurrentPage(1);
@@ -178,19 +202,45 @@ const FetchAllPrompts = ({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3">
-          {currentPrompts.map((prompt) => (
-            <PromptCard
-              key={prompt.id.toString()}
-              prompt={prompt}
-              hasAccess={accessMap.get(prompt.id.toString()) ?? false}
-              openModal={setSelectedPrompt}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3">
+            {currentPrompts.map((prompt) => (
+              <PromptCard
+                key={prompt.id.toString()}
+                prompt={prompt}
+                hasAccess={accessMap.get(prompt.id.toString()) ?? false}
+                openModal={setSelectedPrompt}
+              />
+            ))}
+          </div>
+
+          {/* Infinite Scroll Trigger */}
+          {ENABLE_INFINITE_SCROLL && currentPage < totalPages && (
+            <div
+              ref={loadMoreRef}
+              className="mt-12 flex items-center justify-center py-8"
+            >
+              <div className="flex items-center gap-3 text-slate-400">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Loading more prompts...</span>
+              </div>
+            </div>
+          )}
+
+          {/* Show count indicator for infinite scroll */}
+          {ENABLE_INFINITE_SCROLL && filteredPrompts.length > ITEMS_PER_PAGE && (
+            <div className="mt-8 text-center">
+              <p className="text-sm text-slate-500">
+                Showing <span className="text-white font-semibold">{currentPrompts.length}</span> of{" "}
+                <span className="text-white font-semibold">{filteredPrompts.length}</span> prompts
+              </p>
+            </div>
+          )}
+        </>
       )}
 
-      {filteredPrompts.length > ITEMS_PER_PAGE && (
+      {/* Traditional Pagination (fallback when infinite scroll disabled) */}
+      {!ENABLE_INFINITE_SCROLL && filteredPrompts.length > ITEMS_PER_PAGE && (
         <div className="mt-16 flex items-center justify-center gap-6">
           <Button
             variant="ghost"
