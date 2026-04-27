@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { Footer } from "@/components/footer";
 import { Navigation } from "@/components/navigation";
+import { WebhookSettings } from "@/components/WebhookSettings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -838,6 +839,7 @@ export default function ProfilePage() {
                       ))}
                     </div>
                   )}
+                  <WebhookSettings walletAddress={address} />
                 </TabsContent>
               </Tabs>
             </section>

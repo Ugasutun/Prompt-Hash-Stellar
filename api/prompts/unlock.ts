@@ -16,6 +16,7 @@ import {
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
+import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
 
 /**
  * Get active secrets for token verification
@@ -178,6 +179,13 @@ async function handler(req: any, res: any) {
 
     metrics.trackUnlockSuccess(String(address), String(promptId));
     req.logger.info({ address, promptId }, "Prompt unlocked successfully");
+
+    // Fire-and-forget webhook dispatch so the creator is notified of the sale.
+    void dispatchEvent(prompt.creator ?? "", "PromptPurchased", {
+      promptId: prompt.id.toString(),
+      buyer: String(address),
+      title: prompt.title,
+    }).catch(() => {});
 
     res.status(200).json({
       promptId: prompt.id.toString(),

@@ -4,6 +4,7 @@ import { proxyrouter } from "./routes/proxyRoutes";
 import { promptRouter } from "./routes/promptRoutes";
 import { userRouter } from "./routes/userRoutes";
 import { chatRouter } from "./routes/chatRoutes";
+import { webhookRouter } from "./routes/webhookRoutes";
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.use("/api/prompts", promptRouter);
 app.use("/api/user", userRouter);
 
 app.use("/api/chat", chatRouter);
+app.use("/api/webhooks", webhookRouter);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
