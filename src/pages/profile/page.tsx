@@ -27,6 +27,7 @@ import {
 import { Footer } from "@/components/footer";
 import { Navigation } from "@/components/navigation";
 import { WebhookSettings } from "@/components/WebhookSettings";
+import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -471,6 +472,7 @@ function CreatedPromptCard({
   prompt,
   isBusy,
   priceDraft,
+  walletAddress,
   onDraftChange,
   onUpdatePrice,
   onToggleStatus,
@@ -478,10 +480,12 @@ function CreatedPromptCard({
   prompt: PromptRecord;
   isBusy: boolean;
   priceDraft: string;
+  walletAddress: string;
   onDraftChange: Handler<[string]>;
   onUpdatePrice: Handler<[bigint]>;
   onToggleStatus: Handler<[bigint, boolean]>;
 }) {
+  const [currentVersion, setCurrentVersion] = useState(1);
   const isActive = prompt.active;
 
   return (
@@ -575,6 +579,15 @@ function CreatedPromptCard({
               )}
               {isActive ? "Pause listing" : "Reactivate"}
             </Button>
+          </div>
+          <div className="mt-4">
+            <PostVersionUpdate
+              promptId={prompt.id.toString()}
+              promptTitle={prompt.title}
+              walletAddress={walletAddress}
+              currentVersion={currentVersion}
+              onSuccess={(v) => setCurrentVersion(v)}
+            />
           </div>
         </div>
       </div>
@@ -825,6 +838,7 @@ export default function ProfilePage() {
                           prompt={prompt}
                           isBusy={busyPromptId === prompt.id.toString()}
                           priceDraft={mergedDrafts[prompt.id.toString()]}
+                          walletAddress={address}
                           onDraftChange={(value) =>
                             setPriceDrafts((current) => ({
                               ...current,

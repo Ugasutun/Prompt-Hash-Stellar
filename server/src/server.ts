@@ -5,6 +5,7 @@ import { promptRouter } from "./routes/promptRoutes";
 import { userRouter } from "./routes/userRoutes";
 import { chatRouter } from "./routes/chatRoutes";
 import { webhookRouter } from "./routes/webhookRoutes";
+import { versioningRouter } from "./routes/versioningRoutes";
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use("/api/user", userRouter);
 
 app.use("/api/chat", chatRouter);
 app.use("/api/webhooks", webhookRouter);
+app.use("/api/versions", versioningRouter);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
