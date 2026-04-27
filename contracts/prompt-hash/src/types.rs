@@ -56,19 +56,6 @@ pub struct Prompt {
     pub sales_count: u64,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    Prompt(u128),
-    PromptCounter,
-    FeePercentage,
-    FeeWallet,
-    XlmAddress,
-    CreatorPrompts(Address),
-    BuyerPrompts(Address),
-    Purchase(u128, Address),
-}
-
 pub trait PromptHashTrait {
     fn __constructor(
         env: Env,
@@ -114,6 +101,10 @@ pub trait PromptHashTrait {
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;
+    fn get_fee_percentage(env: Env) -> u32;
+    fn get_fee_wallet(env: Env) -> Option<Address>;
+    fn get_xlm_sac(env: Env) -> Option<Address>;
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;
 }
+

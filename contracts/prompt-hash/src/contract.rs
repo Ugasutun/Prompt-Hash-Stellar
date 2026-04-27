@@ -204,6 +204,18 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
+    fn get_fee_percentage(env: Env) -> u32 {
+        Storage::get_fee_percentage(&env)
+    }
+
+    fn get_fee_wallet(env: Env) -> Option<Address> {
+        Storage::get_fee_wallet(&env)
+    }
+
+    fn get_xlm_sac(env: Env) -> Option<Address> {
+        Storage::get_xlm_address(&env)
+    }
+
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
