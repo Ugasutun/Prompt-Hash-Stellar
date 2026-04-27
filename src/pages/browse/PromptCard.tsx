@@ -10,6 +10,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { shortenAddress } from "@/lib/utils";
 import { formatPriceLabel } from "@/lib/stellar/format";
 import type { PromptRecord } from "@/lib/stellar/promptHashClient";
+import { StarRating } from "@/components/prompts/StarRating";
+import { useQuery } from "@tanstack/react-query";
+import { ReviewClient } from "@/lib/reviews/reviewClient";
 
 export const PromptCard = ({
   prompt,
@@ -21,6 +24,13 @@ export const PromptCard = ({
   openModal: (prompt: PromptRecord) => void;
 }) => {
   const isBestSeller = prompt.salesCount >= 10;
+
+  // Fetch review stats for this prompt
+  const { data: reviewStats } = useQuery({
+    queryKey: ["review-stats", prompt.id.toString()],
+    queryFn: () => ReviewClient.getReviewStats(prompt.id.toString()),
+    staleTime: 60_000, // Cache for 1 minute
+  });
 
   return (
     <Card
@@ -67,6 +77,19 @@ export const PromptCard = ({
           <p className="line-clamp-2 text-sm text-slate-400 leading-relaxed">
             {prompt.previewText}
           </p>
+
+          {/* Rating Display */}
+          {reviewStats && reviewStats.total > 0 && (
+            <div className="pt-2">
+              <StarRating
+                rating={reviewStats.averageRating}
+                readonly
+                size="sm"
+                showCount
+                reviewCount={reviewStats.total}
+              />
+            </div>
+          )}
         </div>
 
         {/* Purchase Info Row */}

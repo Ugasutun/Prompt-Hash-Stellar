@@ -13,7 +13,13 @@ import {
   ExternalLink,
   ShieldCheck,
   Wallet,
+  MessageSquare,
 } from "lucide-react";
+import { ReviewForm } from "../../components/prompts/ReviewForm";
+import { ReviewList } from "../../components/prompts/ReviewList";
+import { StarRating } from "../../components/prompts/StarRating";
+import { ReviewClient } from "../../lib/reviews/reviewClient";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type BuyerStatus =
   | "IDLE"
@@ -38,13 +44,22 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   onRefresh,
 }) => {
   const wallet = useContext(WalletContext);
+  const queryClient = useQueryClient();
 
   const [status, setStatus] = useState<BuyerStatus>("IDLE");
   const [txHash, setTxHash] = useState<string>("");
   const [secretContent, setSecretContent] = useState<string>("");
   const [isCheckingAccess, setIsCheckingAccess] = useState(false);
+  const [showReviewForm, setShowReviewForm] = useState(false);
 
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Fetch reviews for this prompt
+  const { data: reviewData, isLoading: reviewsLoading } = useQuery({
+    queryKey: ["reviews", itemId],
+    queryFn: () => ReviewClient.getReviews(itemId),
+    enabled: isOpen,
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -251,6 +266,41 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                       </pre>
                     </div>
                   </div>
+
+                  {/* Review Section */}
+                  {wallet?.address && (
+                    <div className="mt-6 pt-6 border-t border-white/10">
+                      {!showReviewForm ? (
+                        <button
+                          onClick={() => setShowReviewForm(true)}
+                          className="w-full flex items-center justify-center gap-2 h-12 bg-white/5 hover:bg-white/10 text-white font-semibold rounded-xl transition-all"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          Write a Review
+                        </button>
+                      ) : (
+                        <div className="space-y-4">
+                          <h4 className="text-sm font-bold text-white">Share Your Experience</h4>
+                          <ReviewForm
+                            promptId={itemId}
+                            onSubmit={async (review) => {
+                              await ReviewClient.submitReview(
+                                itemId,
+                                wallet.address!,
+                                review.rating,
+                                review.text
+                              );
+                              queryClient.invalidateQueries({ queryKey: ["reviews", itemId] });
+                              queryClient.invalidateQueries({ queryKey: ["review-stats", itemId] });
+                              setShowReviewForm(false);
+                            }}
+                            onCancel={() => setShowReviewForm(false)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <button
                     onClick={onClose}
                     className="w-full mt-6 h-12 bg-white/5 hover:bg-white/10 text-white font-bold rounded-xl transition-all"
@@ -262,6 +312,30 @@ export const PromptModal: React.FC<PromptModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Reviews Tab */}
+        {reviewData && (
+          <div className="p-8 border-t border-white/10">
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-white">Reviews</h3>
+                {reviewData.stats.total > 0 && (
+                  <div className="flex items-center gap-3">
+                    <StarRating
+                      rating={reviewData.stats.averageRating}
+                      readonly
+                      size="md"
+                    />
+                    <span className="text-sm text-slate-400">
+                      {reviewData.stats.averageRating.toFixed(1)} out of 5
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <ReviewList reviews={reviewData.reviews} isLoading={reviewsLoading} />
+          </div>
+        )}
       </div>
     </div>
   );
