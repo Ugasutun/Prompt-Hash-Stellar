@@ -10,17 +10,29 @@ async function handler(req: any, res: any) {
   }
 
   const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress) as string;
-  const rateLimit = checkRateLimit("challenge", clientIp);
+  const { address, promptId } = req.body ?? {};
+
+  // Authenticated if wallet address is provided in the request body.
+  const isAuthenticated = Boolean(address);
+
+  const rateLimit = await checkRateLimit("challenge", clientIp, isAuthenticated);
 
   if (!rateLimit.success) {
     req.logger.warn({ clientIp }, "Rate limit exceeded for challenge issuance");
     metrics.trackRateLimitHit("challenge", clientIp);
+    res.setHeader("X-RateLimit-Limit", rateLimit.limit);
+    res.setHeader("X-RateLimit-Remaining", 0);
+    res.setHeader("X-RateLimit-Reset", rateLimit.reset);
     res.status(429).json({
       error: "Too many requests. Please try again later.",
       reset: rateLimit.reset,
     });
     return;
   }
+
+  res.setHeader("X-RateLimit-Limit", rateLimit.limit);
+  res.setHeader("X-RateLimit-Remaining", rateLimit.remaining);
+  res.setHeader("X-RateLimit-Reset", rateLimit.reset);
 
   const secret = process.env.CHALLENGE_TOKEN_SECRET;
   if (!secret) {
@@ -29,14 +41,13 @@ async function handler(req: any, res: any) {
     return;
   }
 
-  const { address, promptId } = req.body ?? {};
   if (!address || !promptId) {
     res.status(400).json({ error: "address and promptId are required." });
     return;
   }
 
   const challenge = createChallengeToken(secret, String(address), String(promptId));
-  
+
   metrics.trackChallengeIssued(String(address), String(promptId));
   req.logger.info({ address, promptId }, "Challenge token issued successfully");
 

@@ -26,14 +26,8 @@ import {
 } from "lucide-react";
 import { Footer } from "@/components/footer";
 import { Navigation } from "@/components/navigation";
-import MyPrompts from "@/pages/sell/MyPrompts";
-import { useWalletBalance } from "@/hooks/useWalletBalance";
-import { useWallet } from "@/hooks/useWallet";
-import { Loader2, Wallet } from "lucide-react";
-
-export default function ProfilePage() {
-  const { xlm, isLoading: balanceLoading } = useWalletBalance();
-  const { address } = useWallet();
+import { WebhookSettings } from "@/components/WebhookSettings";
+import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -478,6 +472,7 @@ function CreatedPromptCard({
   prompt,
   isBusy,
   priceDraft,
+  walletAddress,
   onDraftChange,
   onUpdatePrice,
   onToggleStatus,
@@ -485,10 +480,12 @@ function CreatedPromptCard({
   prompt: PromptRecord;
   isBusy: boolean;
   priceDraft: string;
+  walletAddress: string;
   onDraftChange: Handler<[string]>;
   onUpdatePrice: Handler<[bigint]>;
   onToggleStatus: Handler<[bigint, boolean]>;
 }) {
+  const [currentVersion, setCurrentVersion] = useState(1);
   const isActive = prompt.active;
 
   return (
@@ -582,6 +579,15 @@ function CreatedPromptCard({
               )}
               {isActive ? "Pause listing" : "Reactivate"}
             </Button>
+          </div>
+          <div className="mt-4">
+            <PostVersionUpdate
+              promptId={prompt.id.toString()}
+              promptTitle={prompt.title}
+              walletAddress={walletAddress}
+              currentVersion={currentVersion}
+              onSuccess={(v) => setCurrentVersion(v)}
+            />
           </div>
         </div>
       </div>
@@ -765,7 +771,7 @@ export default function ProfilePage() {
             </div>
           )}
         </section>
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-10">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-10">
         {!address ? (
           <DisconnectedProfile />
         ) : (
@@ -880,6 +886,7 @@ export default function ProfilePage() {
                           prompt={prompt}
                           isBusy={busyPromptId === prompt.id.toString()}
                           priceDraft={mergedDrafts[prompt.id.toString()]}
+                          walletAddress={address}
                           onDraftChange={(value) =>
                             setPriceDrafts((current) => ({
                               ...current,
@@ -894,13 +901,15 @@ export default function ProfilePage() {
                       ))}
                     </div>
                   )}
+                  <WebhookSettings walletAddress={address} />
                 </TabsContent>
               </Tabs>
             </section>
           </>
         )}
-      </main>
-      <Footer />
+      </div>
+    </main>
+    <Footer />
     </div>
   );
 }
