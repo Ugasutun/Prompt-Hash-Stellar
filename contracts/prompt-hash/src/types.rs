@@ -22,6 +22,8 @@ pub enum Error {
     XlmAddressNotSet = 16,
     ArithmeticOverflow = 17,
     ReentrancyGuard = 18,
+    PromptExpired = 19,
+    InvalidExtensionDuration = 20,
 }
 
 #[contracttype]
@@ -55,6 +57,7 @@ pub struct Prompt {
     pub price_stroops: i128,
     pub active: bool,
     pub sales_count: u64,
+    pub expires_at: Option<u64>,
 }
 
 pub trait PromptHashTrait {
@@ -78,6 +81,7 @@ pub trait PromptHashTrait {
         wrapped_key: String,
         content_hash: BytesN<32>,
         price_stroops: i128,
+        expires_at: Option<u64>,
     ) -> Result<u128, Error>;
 
     fn set_prompt_sale_status(
@@ -107,5 +111,12 @@ pub trait PromptHashTrait {
     fn get_xlm_sac(env: Env) -> Option<Address>;
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;
+    fn extend_listing(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        extension_days: u64,
+        fee_percentage_bps: Option<u32>,
+    ) -> Result<(), Error>;
 }
 

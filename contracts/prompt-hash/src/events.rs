@@ -32,6 +32,16 @@ struct PromptPurchased {
 }
 
 #[contractevent]
+struct ListingExtended {
+    #[topic]
+    pub prompt_id: u128,
+    pub creator: Address,
+    pub new_expires_at: Option<u64>,
+    pub extension_days: u64,
+    pub fee_paid: i128,
+}
+
+#[contractevent]
 struct FeeUpdated {
     #[topic]
     pub new_fee_percentage: u32,
@@ -79,6 +89,24 @@ impl Events {
             buyer,
             creator,
             price_stroops,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_listing_extended(
+        env: &Env,
+        prompt_id: u128,
+        creator: Address,
+        new_expires_at: Option<u64>,
+        extension_days: u64,
+        fee_paid: i128,
+    ) {
+        ListingExtended {
+            prompt_id,
+            creator,
+            new_expires_at,
+            extension_days,
+            fee_paid,
         }
         .publish(env);
     }
