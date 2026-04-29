@@ -1,26 +1,14 @@
 import { useMemo, useState } from "react";
-import type { ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Eye,
-  Loader2,
-  LockKeyhole,
-  PlusCircle,
-  TrendingUp,
-  ToggleLeft,
-  ToggleRight,
-} from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Eye, Loader2, LockKeyhole, AlertCircle, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useWallet } from "@/hooks/useWallet";
+import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import {
-  getPromptsByBuyer,
-  getPromptsByCreator,
   setPromptSaleStatus,
   updatePromptPrice,
 } from "@/lib/stellar/promptHashClient";
@@ -30,43 +18,40 @@ import {
   xlmToStroops,
 } from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
+import { useDashboard } from "@/hooks/useDashboard";
 
-interface Props {
-  onCreateNew?: () => void;
-}
-
-// ── Skeleton loader ───────────────────────────────────────────────────────────
-function SkeletonCard() {
-  return (
-    <div className="animate-pulse rounded-2xl border border-white/10 bg-white/5 p-5">
-      <div className="aspect-video rounded-xl bg-white/10" />
-      <div className="mt-4 space-y-2">
-        <div className="h-3 w-1/3 rounded bg-white/10" />
-        <div className="h-5 w-2/3 rounded bg-white/10" />
-        <div className="h-3 w-full rounded bg-white/10" />
-      </div>
+const EmptyState = ({ message }: { message: string }) => (
+  <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/5 p-12 text-center">
+    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/5 text-slate-500 mb-4">
+      <AlertCircle size={24} />
     </div>
-  );
-}
+    <p className="text-sm text-slate-400">{message}</p>
+  </div>
+);
 
-// ── Empty state ───────────────────────────────────────────────────────────────
-function EmptyState({
-  label,
-  action,
-}: {
-  label: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-4 rounded-[2rem] border border-dashed border-white/10 bg-white/5 px-8 py-14 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5">
-        <TrendingUp className="h-5 w-5 text-slate-500" />
-      </div>
-      <p className="text-sm text-slate-400">{label}</p>
-      {action}
+const LoadingState = ({ message }: { message: string }) => (
+  <div className="flex flex-col items-center justify-center rounded-3xl border border-white/10 bg-white/5 p-12 text-center">
+    <Loader2 className="h-8 w-8 animate-spin text-emerald-400 mb-4" />
+    <p className="text-sm text-slate-400">{message}</p>
+  </div>
+);
+
+const ErrorState = ({ message, onRetry }: { message: string; onRetry: () => void }) => (
+  <div className="flex flex-col items-center justify-center rounded-3xl border border-red-500/20 bg-red-500/5 p-12 text-center">
+    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/20 text-red-400 mb-4">
+      <AlertCircle size={24} />
     </div>
-  );
-}
+    <p className="text-sm text-red-200 mb-6">{message}</p>
+    <Button 
+      variant="outline" 
+      onClick={onRetry}
+      className="border-red-500/20 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+    >
+      <RefreshCcw className="mr-2 h-4 w-4" />
+      Retry
+    </Button>
+  </div>
+);
 
 // ── Toast-style feedback ──────────────────────────────────────────────────────
 function Feedback({
@@ -95,7 +80,9 @@ function Feedback({
 // ── Main component ────────────────────────────────────────────────────────────
 const MyPrompts = ({ onCreateNew }: Props) => {
   const queryClient = useQueryClient();
-  const { address, signMessage, signTransaction } = useWallet();
+  const { signMessage, signTransaction } = useWallet();
+  const { address, created, purchased, refresh } = useDashboard();
+  
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyPromptId, setBusyPromptId] = useState<string | null>(null);
@@ -104,50 +91,33 @@ const MyPrompts = ({ onCreateNew }: Props) => {
     Record<string, string>
   >({});
 
-  const createdQuery = useQuery({
-    queryKey: ["created-prompts", address],
-    queryFn: async () =>
-      address ? getPromptsByCreator(browserStellarConfig, address) : [],
-    enabled: Boolean(address),
-  });
+  const mergedDrafts = useMemo(() => {
+    return Object.fromEntries(
+      created.data.map((prompt) => [
+        prompt.id.toString(),
+        priceDrafts[prompt.id.toString()] ?? stroopsToXlmString(prompt.priceStroops),
+      ]),
+    );
+  }, [created.data, priceDrafts]);
 
-  const purchasedQuery = useQuery({
-    queryKey: ["purchased-prompts", address],
-    queryFn: async () =>
-      address ? getPromptsByBuyer(browserStellarConfig, address) : [],
-    enabled: Boolean(address),
-  });
-
-  const createdPrompts = createdQuery.data ?? [];
-  const purchasedPrompts = purchasedQuery.data ?? [];
-
-  const mergedDrafts = useMemo(
-    () =>
-      Object.fromEntries(
-        createdPrompts.map((p) => [
-          p.id.toString(),
-          priceDrafts[p.id.toString()] ?? stroopsToXlmString(p.priceStroops),
-        ]),
-      ),
-    [createdPrompts, priceDrafts],
-  );
-
-  const refreshAll = async () => {
+  const refreshPromptLists = async () => {
+    await refresh();
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["created-prompts"] }),
-      queryClient.invalidateQueries({ queryKey: ["purchased-prompts"] }),
       queryClient.invalidateQueries({ queryKey: ["marketplace-prompts"] }),
       queryClient.invalidateQueries({ queryKey: ["prompt-access"] }),
     ]);
   };
+  const refreshPromptLists = () => invalidateAllPromptQueries(queryClient);
 
   const ok = (msg: string) => {
     setErrorMessage(null);
-    setStatusMessage(msg);
+    setStatusMessage(message);
+    setTimeout(() => setStatusMessage(null), 5000);
   };
   const err = (msg: string) => {
     setStatusMessage(null);
-    setErrorMessage(msg);
+    setErrorMessage(message);
+    setTimeout(() => setErrorMessage(null), 5000);
   };
 
   const handleToggleSaleStatus = async (promptId: bigint, active: boolean) => {
@@ -224,283 +194,252 @@ const MyPrompts = ({ onCreateNew }: Props) => {
   // ── Not connected ───────────────────────────────────────────────────────────
   if (!address) {
     return (
-      <div className="flex flex-col items-center gap-4 rounded-[2rem] border border-white/10 bg-slate-950/60 px-8 py-14 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5">
-          <LockKeyhole className="h-5 w-5 text-slate-500" />
-        </div>
-        <div>
-          <p className="font-medium text-slate-200">Wallet not connected</p>
-          <p className="mt-1 text-sm text-slate-400">
-            Connect your Stellar wallet to manage your listings and view
-            purchased prompts.
-          </p>
-        </div>
-      </div>
+      <EmptyState message="Connect your Stellar wallet to manage created and purchased prompts." />
     );
   }
 
   return (
-    <div className="space-y-10">
-      <Feedback status={statusMessage} error={errorMessage} />
+    <div className="space-y-12">
+      {statusMessage ? (
+        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5 rounded-2xl border border-emerald-400/20 bg-slate-900/90 px-6 py-4 text-sm text-emerald-400 shadow-2xl backdrop-blur-md">
+          {statusMessage}
+        </div>
+      ) : null}
+      {errorMessage ? (
+        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5 rounded-2xl border border-red-400/20 bg-slate-900/90 px-6 py-4 text-sm text-red-400 shadow-2xl backdrop-blur-md">
+          {errorMessage}
+        </div>
+      ) : null}
 
-      {/* ── Created by me ── */}
-      <section className="space-y-5">
-        <div className="flex items-center justify-between gap-4">
+      <section className="space-y-6">
+        <div className="flex items-end justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">
-              Created by me
-            </h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Update pricing, pause listings, and track license sales.
+            <h2 className="text-2xl font-semibold text-white">Created by me</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Update pricing, pause listings, and track license sales without changing ownership.
             </p>
           </div>
-          <Button
-            size="sm"
-            className="shrink-0 gap-1.5 bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-            onClick={onCreateNew}
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => refresh()} 
+            className="text-slate-400 hover:text-white"
+            disabled={created.isLoading}
           >
-            <PlusCircle className="h-3.5 w-3.5" />
-            New listing
+            <RefreshCcw className={`mr-2 h-4 w-4 ${created.isLoading ? 'animate-spin' : ''}`} />
+            Sync
           </Button>
         </div>
 
-        {createdQuery.isLoading ? (
-          <div className="grid gap-5 xl:grid-cols-2">
-            <SkeletonCard />
-            <SkeletonCard />
-          </div>
-        ) : createdPrompts.length === 0 ? (
-          <EmptyState
-            label="You haven't created any listings yet."
-            action={
-              <Button
-                size="sm"
-                className="gap-1.5 bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-                onClick={onCreateNew}
-              >
-                <PlusCircle className="h-3.5 w-3.5" />
-                Create your first listing
-              </Button>
-            }
+        {created.isLoading ? (
+          <LoadingState message="Fetching your created listings..." />
+        ) : created.isError ? (
+          <ErrorState 
+            message={created.error instanceof Error ? created.error.message : "Failed to load created prompts."} 
+            onRetry={() => refresh()}
           />
+        ) : created.data.length === 0 ? (
+          <EmptyState message="You haven't created any prompts yet." />
         ) : (
-          <div className="grid gap-5 xl:grid-cols-2">
-            {createdPrompts.map((prompt) => {
-              const busy = busyPromptId === prompt.id.toString();
-              return (
-                <Card
-                  key={prompt.id.toString()}
-                  className="overflow-hidden border-white/10 bg-slate-950/70 text-white"
-                >
-                  {/* Cover */}
-                  <div className="aspect-video overflow-hidden">
-                    <img
-                      src={prompt.imageUrl || "/images/codeguru.png"}
-                      alt={prompt.title}
-                      className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                    />
+          <div className="grid gap-6 xl:grid-cols-2">
+            {created.data.map((prompt) => (
+              <Card
+                key={prompt.id.toString()}
+                className="overflow-hidden border-white/10 bg-slate-950/70 text-white transition-all hover:border-emerald-500/30"
+              >
+                <div className="aspect-video overflow-hidden">
+                  <img
+                    src={prompt.imageUrl || "/images/codeguru.png"}
+                    alt={prompt.title}
+                    className="h-full w-full object-cover transition-transform hover:scale-105"
+                  />
+                </div>
+                <CardContent className="space-y-4 p-6">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-emerald-400 font-bold">
+                      {prompt.category}
+                    </p>
+                    <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
+                    <p className="mt-3 text-sm leading-6 text-slate-400 line-clamp-2">
+                      {prompt.previewText}
+                    </p>
                   </div>
-
-                  <CardContent className="space-y-4 p-5">
-                    {/* Header */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-widest text-slate-500">
-                          {prompt.category}
-                        </p>
-                        <h3 className="mt-1 truncate text-base font-semibold">
-                          {prompt.title}
-                        </h3>
-                      </div>
-                      <Badge
-                        className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-                          prompt.active
-                            ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
-                            : "border-white/10 bg-white/5 text-slate-400"
-                        }`}
-                      >
-                        {prompt.active ? "Active" : "Paused"}
-                      </Badge>
+                  <div className="grid grid-cols-2 gap-4 rounded-2xl border border-white/5 bg-white/5 p-4 text-sm">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-bold">
+                        Sales
+                      </p>
+                      <p className="mt-1 font-semibold text-slate-100 text-lg">
+                        {prompt.salesCount}
+                      </p>
                     </div>
-
-                    {/* Stats */}
-                    <div className="grid grid-cols-2 gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
-                      <div>
-                        <p className="text-xs uppercase tracking-widest text-slate-500">
-                          Sales
-                        </p>
-                        <p className="mt-1 font-semibold text-slate-100">
-                          {prompt.salesCount}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-widest text-slate-500">
-                          Current price
-                        </p>
-                        <p className="mt-1 font-semibold text-slate-100">
-                          {formatPriceLabel(prompt.priceStroops)}
-                        </p>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-bold">
+                        Status
+                      </p>
+                      <p className={`mt-1 font-semibold text-lg ${prompt.active ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {prompt.active ? "Active" : "Inactive"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="relative flex-1">
+                      <Input
+                        value={mergedDrafts[prompt.id.toString()]}
+                        onChange={(event) =>
+                          setPriceDrafts((current) => ({
+                            ...current,
+                            [prompt.id.toString()]: event.target.value,
+                          }))
+                        }
+                        className="border-white/10 bg-white/5 text-slate-100 pr-12 focus-visible:ring-emerald-500/50"
+                      />
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-bold">
+                        XLM
                       </div>
                     </div>
-
-                    {/* Price update */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-400">
-                        Update price (XLM)
-                      </label>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <Input
-                            value={mergedDrafts[prompt.id.toString()]}
-                            onChange={(e) =>
-                              setPriceDrafts((prev) => ({
-                                ...prev,
-                                [prompt.id.toString()]: e.target.value,
-                              }))
-                            }
-                            className="border-white/10 bg-white/5 pr-12 text-slate-100"
-                          />
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
-                            XLM
-                          </span>
-                        </div>
-                        <Button
-                          size="sm"
-                          className="shrink-0 bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-                          onClick={() => void handleUpdatePrice(prompt.id)}
-                          disabled={busy}
-                        >
-                          {busy ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            "Save"
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Toggle active */}
-                    <button
-                      className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm transition-colors hover:bg-white/10 disabled:opacity-50"
-                      onClick={() =>
-                        void handleToggleSaleStatus(
-                          prompt.id,
-                          prompt.active,
-                        )
+                    <Input
+                      aria-label={`Price for ${prompt.title}`}
+                      value={mergedDrafts[prompt.id.toString()]}
+                      onChange={(event) =>
+                        setPriceDrafts((current) => ({
+                          ...current,
+                          [prompt.id.toString()]: event.target.value,
+                        }))
                       }
-                      disabled={busy}
+                      className="border-white/10 bg-white/5 text-slate-100"
+                    />
+                    <Button
+                      className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"
+                      onClick={() => void handleUpdatePrice(prompt.id)}
+                      disabled={busyPromptId === prompt.id.toString()}
                     >
-                      <span className="text-slate-300">
-                        {prompt.active
-                          ? "Pause this listing"
-                          : "Reactivate listing"}
-                      </span>
-                      {prompt.active ? (
-                        <ToggleRight className="h-5 w-5 text-emerald-400" />
+                      {busyPromptId === prompt.id.toString() ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        <ToggleLeft className="h-5 w-5 text-slate-500" />
+                        "Update"
                       )}
-                    </button>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                    </Button>
+                  </div>
+                </CardContent>
+                <CardFooter className="flex items-center justify-between p-6 pt-0">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-bold">
+                      Price
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-slate-100">
+                      {formatPriceLabel(prompt.priceStroops)}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white"
+                    onClick={() => void handleToggleSaleStatus(prompt.id, prompt.active)}
+                    disabled={busyPromptId === prompt.id.toString()}
+                  >
+                    {prompt.active ? "Pause listing" : "Reactivate"}
+                  </Button>
+                </CardFooter>
+              </Card>
+            ))}
           </div>
         )}
       </section>
 
-      {/* ── Purchased by me ── */}
-      <section className="space-y-5">
-        <div>
-          <h2 className="text-xl font-semibold text-white">Purchased by me</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Unlock purchased prompt text on demand. Access is permanent once
-            granted on-chain.
-          </p>
+      <section className="space-y-6">
+        <div className="flex items-end justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold text-white">Purchased by me</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Unlock purchased prompt text on demand. Access remains available for future sessions.
+            </p>
+          </div>
         </div>
 
-        {purchasedQuery.isLoading ? (
-          <div className="grid gap-5 xl:grid-cols-2">
-            <SkeletonCard />
-          </div>
-        ) : purchasedPrompts.length === 0 ? (
-          <EmptyState label="You haven't purchased any prompts yet." />
+        {purchased.isLoading ? (
+          <LoadingState message="Fetching your purchased prompts..." />
+        ) : purchased.isError ? (
+          <ErrorState 
+            message={purchased.error instanceof Error ? purchased.error.message : "Failed to load purchased prompts."} 
+            onRetry={() => refresh()}
+          />
+        ) : purchased.data.length === 0 ? (
+          <EmptyState message="You haven't purchased any prompts yet." />
         ) : (
-          <div className="grid gap-5 xl:grid-cols-2">
-            {purchasedPrompts.map((prompt) => {
-              const busy = busyPromptId === prompt.id.toString();
-              const unlocked = unlockedPrompts[prompt.id.toString()];
-              return (
-                <Card
-                  key={prompt.id.toString()}
-                  className="overflow-hidden border-white/10 bg-slate-950/70 text-white"
-                >
-                  <CardContent className="space-y-4 p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-widest text-slate-500">
-                          {prompt.category}
-                        </p>
-                        <h3 className="mt-1 truncate text-base font-semibold">
-                          {prompt.title}
-                        </h3>
-                      </div>
-                      <div className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300">
-                        {formatPriceLabel(prompt.priceStroops)}
-                      </div>
+          <div className="grid gap-6 xl:grid-cols-2">
+            {purchased.data.map((prompt) => (
+              <Card
+                key={prompt.id.toString()}
+                className="border-white/10 bg-slate-950/70 text-white transition-all hover:border-emerald-500/30"
+              >
+                <CardContent className="space-y-4 p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.25em] text-emerald-400 font-bold">
+                        {prompt.category}
+                      </p>
+                      <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
                     </div>
-
-                    <p className="text-sm leading-6 text-slate-400">
-                      {prompt.previewText}
-                    </p>
-
-                    {/* Unlocked content */}
-                    {unlocked ? (
-                      <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
-                        <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-emerald-300">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Unlocked
-                        </div>
-                        <pre className="whitespace-pre-wrap font-mono text-sm leading-7 text-slate-100">
-                          {unlocked}
-                        </pre>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-slate-500">
-                        <LockKeyhole className="h-3.5 w-3.5 shrink-0" />
-                        Unlock to reveal the full prompt text.
-                      </div>
-                    )}
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        className="flex-1 bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-                        onClick={() => void handleUnlock(prompt.id)}
-                        disabled={busy}
-                      >
-                        {busy ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Unlocking…
-                          </>
-                        ) : (
-                          <>
-                            <LockKeyhole className="mr-2 h-4 w-4" />
-                            {unlocked ? "Re-unlock" : "Unlock prompt"}
-                          </>
-                        )}
-                      </Button>
-                      {unlocked && (
-                        <Button
-                          variant="outline"
-                          className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
-                          onClick={() => void handleUnlock(prompt.id)}
-                          disabled={busy}
-                        >
-                          <Eye className="mr-2 h-4 w-4" />
-                          Refresh
-                        </Button>
+                    <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-xs font-bold text-emerald-400">
+                      {formatPriceLabel(prompt.priceStroops)}
+                    </div>
+                  </div>
+                  <p className="text-sm leading-6 text-slate-400">
+                    {prompt.previewText}
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"
+                      onClick={() => void handleUnlock(prompt.id)}
+                      disabled={busyPromptId === prompt.id.toString()}
+                    >
+                      {busyPromptId === prompt.id.toString() ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Unlocking...
+                        </>
+                      ) : (
+                        <>
+                          <LockKeyhole className="mr-2 h-4 w-4" />
+                          Unlock prompt
+                        </>
                       )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white"
+                      onClick={() => void handleUnlock(prompt.id)}
+                    >
+                      <Eye className="mr-2 h-4 w-4" />
+                      Re-open
+                    </Button>
+                  </div>
+                  {unlockedPrompts[prompt.id.toString()] ? (
+                    <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-slate-900/50 p-6 shadow-inner">
+                      <div className="mb-3 flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Decrypted Content</span>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-6 px-2 text-[10px] text-slate-500 hover:text-white"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(unlockedPrompts[prompt.id.toString()]);
+                            updateStatus("Copied to clipboard.");
+                          }}
+                        >
+                          Copy
+                        </Button>
+                      </div>
+                      <pre className="whitespace-pre-wrap font-mono text-sm leading-7 text-slate-100">
+                        {unlockedPrompts[prompt.id.toString()]}
+                      </pre>
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-dashed border-white/5 bg-white/5 px-6 py-8 text-center">
+                      <LockKeyhole className="mx-auto h-6 w-6 text-slate-600 mb-2" />
+                      <p className="text-xs text-slate-500">
+                        Unlocked plaintext appears here after the access check succeeds.
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

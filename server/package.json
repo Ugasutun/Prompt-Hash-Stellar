@@ -7,7 +7,9 @@
   },
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest --passWithNoTests",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write .",
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
     "start": "node build/server.js"
@@ -33,7 +35,8 @@
     "express-async-handler": "^1.2.0",
     "mongoose": "^8.19.3",
     "nodemon": "^3.1.10",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@stellar/stellar-sdk": "^14.6.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.5",

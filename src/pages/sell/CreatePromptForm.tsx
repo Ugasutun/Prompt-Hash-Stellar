@@ -1,15 +1,7 @@
 import { ChangeEvent, useMemo, useState } from "react";
-import {
-  AlertCircle,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Image,
-  LockKeyhole,
-  Loader2,
-  Sparkles,
-  Tag,
-} from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +22,7 @@ import {
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { xlmToStroops } from "@/lib/stellar/format";
 import { createPrompt } from "@/lib/stellar/promptHashClient";
+import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 
 const limits = {
   title: 120,
@@ -53,128 +46,9 @@ interface FormData {
   priceXlm: string;
 }
 
-interface FormErrors {
-  [key: string]: string;
-}
-
-interface Props {
-  onCreated?: () => void;
-}
-
-// ── Step definitions ──────────────────────────────────────────────────────────
-const STEPS = [
-  {
-    id: "basics",
-    label: "Basics",
-    icon: Image,
-    description: "Title, category, and cover image",
-  },
-  {
-    id: "content",
-    label: "Content",
-    icon: LockKeyhole,
-    description: "Preview text and encrypted prompt",
-  },
-  {
-    id: "pricing",
-    label: "Pricing",
-    icon: Tag,
-    description: "Set your XLM listing price",
-  },
-  {
-    id: "publish",
-    label: "Publish",
-    icon: Sparkles,
-    description: "Review and submit on-chain",
-  },
-] as const;
-
-type StepId = (typeof STEPS)[number]["id"];
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function FieldError({ message }: { message?: string }) {
-  if (!message) return null;
-  return (
-    <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-400">
-      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-      {message}
-    </p>
-  );
-}
-
-function CharCount({ current, max }: { current: number; max: number }) {
-  const pct = current / max;
-  return (
-    <span
-      className={`text-xs tabular-nums ${
-        pct >= 1
-          ? "text-red-400"
-          : pct >= 0.85
-            ? "text-amber-400"
-            : "text-slate-500"
-      }`}
-    >
-      {current}/{max}
-    </span>
-  );
-}
-
-// ── Step progress bar ─────────────────────────────────────────────────────────
-function StepBar({
-  currentIndex,
-  total,
-}: {
-  currentIndex: number;
-  total: number;
-}) {
-  return (
-    <div className="mb-8 flex items-center gap-0">
-      {STEPS.map((step, i) => {
-        const Icon = step.icon;
-        const done = i < currentIndex;
-        const active = i === currentIndex;
-        return (
-          <div key={step.id} className="flex flex-1 items-center">
-            <div className="flex flex-col items-center gap-1.5">
-              <div
-                className={`flex h-9 w-9 items-center justify-center rounded-full border transition-all ${
-                  done
-                    ? "border-emerald-400 bg-emerald-400/20 text-emerald-300"
-                    : active
-                      ? "border-emerald-400 bg-emerald-500/20 text-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.3)]"
-                      : "border-white/10 bg-white/5 text-slate-500"
-                }`}
-              >
-                {done ? (
-                  <CheckCircle2 className="h-4 w-4" />
-                ) : (
-                  <Icon className="h-4 w-4" />
-                )}
-              </div>
-              <span
-                className={`hidden text-[10px] font-medium uppercase tracking-wider sm:block ${
-                  active ? "text-emerald-300" : done ? "text-slate-400" : "text-slate-600"
-                }`}
-              >
-                {step.label}
-              </span>
-            </div>
-            {i < total - 1 && (
-              <div
-                className={`mx-1 h-px flex-1 transition-all ${
-                  i < currentIndex ? "bg-emerald-400/40" : "bg-white/10"
-                }`}
-              />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
-export function CreatePromptForm({ onCreated }: Props) {
+export function CreatePromptForm() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { address, signTransaction } = useWallet();
   const [stepIndex, setStepIndex] = useState(0);
   const [formData, setFormData] = useState<FormData>({
@@ -330,8 +204,19 @@ export function CreatePromptForm({ onCreated }: Props) {
         },
       );
 
-      setSuccessPromptId(promptId.toString());
-    } catch (err) {
+      // Invalidate before navigating so the browse grid is fresh on arrival.
+      await invalidateAllPromptQueries(queryClient);
+      setSuccessMessage(`Prompt #${promptId.toString()} created successfully.`);
+      setFormData({
+        imageUrl: "",
+        title: "",
+        category: "",
+        previewText: "",
+        fullPrompt: "",
+        priceXlm: "2",
+      });
+      navigate("/browse");
+    } catch (error) {
       setSubmitError(
         err instanceof Error ? err.message : "Failed to create prompt.",
       );
@@ -347,13 +232,42 @@ export function CreatePromptForm({ onCreated }: Props) {
         <div className="flex h-16 w-16 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/20">
           <CheckCircle2 className="h-8 w-8 text-emerald-300" />
         </div>
-        <div>
-          <h2 className="text-2xl font-semibold text-white">
-            Listing published on-chain
-          </h2>
-          <p className="mt-2 text-sm text-slate-400">
-            Prompt #{successPromptId} is now live. Buyers can discover and
-            purchase a license from the browse page.
+      ) : null}
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="space-y-2">
+          <label htmlFor="create-prompt-image-url" className="text-sm font-medium">
+            Image URL
+          </label>
+          <Input
+            id="create-prompt-image-url"
+            name="imageUrl"
+            value={formData.imageUrl}
+            onChange={handleChange}
+            placeholder="https://example.com/prompt-cover.png"
+            className={errors.imageUrl ? "border-red-500" : ""}
+          />
+          {errors.imageUrl ? (
+            <p className="flex items-center gap-1 text-sm text-red-400">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {errors.imageUrl}
+            </p>
+          ) : null}
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="create-prompt-title" className="text-sm font-medium">
+            Title
+          </label>
+          <Input
+            id="create-prompt-title"
+            name="title"
+            value={formData.title}
+            onChange={handleChange}
+            placeholder="Board-ready launch plan"
+            className={errors.title ? "border-red-500" : ""}
+          />
+          <p className="text-xs text-slate-400">
+            {formData.title.length}/{limits.title}
           </p>
         </div>
         <div className="flex flex-wrap justify-center gap-3">
@@ -386,128 +300,72 @@ export function CreatePromptForm({ onCreated }: Props) {
     );
   }
 
-  return (
-    <div className="rounded-[2rem] border border-white/10 bg-slate-950/60 p-6 sm:p-8">
-      <StepBar currentIndex={stepIndex} total={STEPS.length} />
-
-      {/* Step header */}
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-white">
-          {currentStep.label}
-        </h2>
-        <p className="mt-1 text-sm text-slate-400">
-          {currentStep.description}
-        </p>
-      </div>
-
-      {/* Wallet warning */}
-      {!isConfigured && (
-        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-          <span>
-            Connect your wallet and configure{" "}
-            <code className="rounded bg-amber-400/10 px-1 text-xs">
-              PUBLIC_PROMPT_HASH_CONTRACT_ID
-            </code>{" "}
-            and{" "}
-            <code className="rounded bg-amber-400/10 px-1 text-xs">
-              PUBLIC_UNLOCK_PUBLIC_KEY
-            </code>{" "}
-            before listing prompts.
-          </span>
-        </div>
-      )}
-
-      {/* ── Step: Basics ── */}
-      {currentStep.id === "basics" && (
-        <div className="space-y-5">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-slate-200">
-              Cover image URL
-            </label>
-            <Input
-              name="imageUrl"
-              value={formData.imageUrl}
-              onChange={handleChange}
-              placeholder="https://example.com/prompt-cover.png"
-              className={`border-white/10 bg-white/5 text-slate-100 placeholder:text-slate-600 ${errors.imageUrl ? "border-red-500/60" : ""}`}
-            />
-            <p className="text-xs text-slate-500">
-              A square or 16:9 image works best on browse cards.
+      <div className="grid gap-6 md:grid-cols-[1fr_220px]">
+        <div className="space-y-2">
+          <label htmlFor="create-prompt-preview" className="text-sm font-medium">
+            Preview text
+          </label>
+          <Textarea
+            id="create-prompt-preview"
+            name="previewText"
+            value={formData.previewText}
+            onChange={handleChange}
+            placeholder="This public preview is visible on browse cards and modals."
+            rows={4}
+            className={errors.previewText ? "border-red-500" : ""}
+          />
+          <p className="text-xs text-slate-400">
+            {formData.previewText.length}/{limits.preview}
+          </p>
+          {errors.previewText ? (
+            <p className="flex items-center gap-1 text-sm text-red-400">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {errors.previewText}
             </p>
-            <FieldError message={errors.imageUrl} />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-slate-200">
-                Title
-              </label>
-              <CharCount
-                current={formData.title.length}
-                max={limits.title}
-              />
-            </div>
-            <Input
-              name="title"
-              value={formData.title}
-              onChange={handleChange}
-              placeholder="Board-ready launch plan"
-              className={`border-white/10 bg-white/5 text-slate-100 placeholder:text-slate-600 ${errors.title ? "border-red-500/60" : ""}`}
-            />
-            <FieldError message={errors.title} />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-slate-200">
-              Category
-            </label>
-            <Select
-              value={formData.category}
-              onValueChange={handleCategoryChange}
-            >
-              <SelectTrigger
-                className={`border-white/10 bg-white/5 text-slate-100 ${errors.category ? "border-red-500/60" : ""}`}
-              >
-                <SelectValue placeholder="Select a category" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((cat) => (
-                  <SelectItem key={cat} value={cat}>
-                    {cat}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldError message={errors.category} />
-          </div>
+          ) : null}
         </div>
-      )}
+        <div className="space-y-2">
+          <label htmlFor="create-prompt-category" className="text-sm font-medium">
+            Category
+          </label>
+          <Select value={formData.category} onValueChange={handleCategoryChange}>
+            <SelectTrigger
+              id="create-prompt-category"
+              aria-label="Category"
+              className={errors.category ? "border-red-500" : ""}
+            >
+              <SelectValue placeholder="Select category" />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((category) => (
+                <SelectItem key={category} value={category}>
+                  {category}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {errors.category ? (
+            <p className="flex items-center gap-1 text-sm text-red-400">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {errors.category}
+            </p>
+          ) : null}
 
-      {/* ── Step: Content ── */}
-      {currentStep.id === "content" && (
-        <div className="space-y-5">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-slate-200">
-                Preview text
-              </label>
-              <CharCount
-                current={formData.previewText.length}
-                max={limits.preview}
-              />
-            </div>
-            <Textarea
-              name="previewText"
-              value={formData.previewText}
-              onChange={handleChange}
-              rows={4}
-              placeholder="Describe what buyers get — this is visible on browse cards before purchase."
-              className={`border-white/10 bg-white/5 text-slate-100 placeholder:text-slate-600 ${errors.previewText ? "border-red-500/60" : ""}`}
-            />
-            <p className="text-xs text-slate-500">
-              This public teaser appears on browse cards and listing modals.
-              Keep it compelling but don't give away the full prompt.
+          <label htmlFor="create-prompt-price" className="pt-3 text-sm font-medium">
+            Price in XLM
+          </label>
+          <Input
+            id="create-prompt-price"
+            name="priceXlm"
+            value={formData.priceXlm}
+            onChange={handleChange}
+            placeholder="2.5"
+            className={errors.priceXlm ? "border-red-500" : ""}
+          />
+          {errors.priceXlm ? (
+            <p className="flex items-center gap-1 text-sm text-red-400">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {errors.priceXlm}
             </p>
             <FieldError message={errors.previewText} />
           </div>
@@ -537,52 +395,47 @@ export function CreatePromptForm({ onCreated }: Props) {
             <FieldError message={errors.fullPrompt} />
           </div>
         </div>
-      )}
+      </div>
 
-      {/* ── Step: Pricing ── */}
-      {currentStep.id === "pricing" && (
-        <div className="space-y-5">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-slate-200">
-              Price (XLM)
-            </label>
-            <div className="relative">
-              <Input
-                name="priceXlm"
-                value={formData.priceXlm}
-                onChange={handleChange}
-                placeholder="2.5"
-                className={`border-white/10 bg-white/5 pr-14 text-slate-100 placeholder:text-slate-600 ${errors.priceXlm ? "border-red-500/60" : ""}`}
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
-                XLM
-              </span>
-            </div>
-            <p className="text-xs text-slate-500">
-              Buyers pay this amount in XLM to receive a license. You can
-              update the price at any time from My Prompts.
-            </p>
-            <FieldError message={errors.priceXlm} />
-          </div>
+      <div className="space-y-2">
+        <label htmlFor="create-prompt-full-prompt" className="text-sm font-medium">
+          Full prompt
+        </label>
+        <Textarea
+          id="create-prompt-full-prompt"
+          name="fullPrompt"
+          value={formData.fullPrompt}
+          onChange={handleChange}
+          rows={12}
+          placeholder="This plaintext is encrypted in the browser, then only encrypted fields are sent on-chain."
+          className={errors.fullPrompt ? "border-red-500" : ""}
+        />
+        {errors.fullPrompt ? (
+          <p className="flex items-center gap-1 text-sm text-red-400">
+            <AlertCircle className="h-3.5 w-3.5" />
+            {errors.fullPrompt}
+          </p>
+        ) : null}
+      </div>
 
-          {/* Pricing context card */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm">
-            <p className="font-medium text-slate-200">How pricing works</p>
-            <ul className="mt-3 space-y-2 text-slate-400">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                Buyers pay XLM directly to the smart contract.
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                Access is recorded on-chain — no re-purchase needed.
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                You can pause or reactivate listings at any time.
-              </li>
-            </ul>
-          </div>
+      <Button
+        className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+        disabled={isSubmitting}
+        onClick={handleSubmit}
+      >
+        {isSubmitting ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Encrypting and submitting...
+          </>
+        ) : (
+          "Create prompt listing"
+        )}
+      </Button>
+
+      {submitError ? (
+        <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {submitError}
         </div>
       )}
 

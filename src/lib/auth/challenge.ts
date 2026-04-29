@@ -59,7 +59,7 @@ export function createChallengeToken(
 }
 
 export function verifyChallengeToken(
-  secret: string,
+  secret: string | string[],
   token: string,
   address: string,
   promptId: string,
@@ -70,10 +70,22 @@ export function verifyChallengeToken(
     throw new Error("Malformed challenge token.");
   }
 
-  const expectedSignature = signPayload(secret, encodedPayload);
-  const received = Buffer.from(signature, "utf8");
-  const expected = Buffer.from(expectedSignature, "utf8");
-  if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+  // Support multiple secrets for rotation grace period
+  const secrets = Array.isArray(secret) ? secret : [secret];
+  let validSignature = false;
+
+  for (const sec of secrets) {
+    const expectedSignature = signPayload(sec, encodedPayload);
+    const received = Buffer.from(signature, "utf8");
+    const expected = Buffer.from(expectedSignature, "utf8");
+    
+    if (received.length === expected.length && timingSafeEqual(received, expected)) {
+      validSignature = true;
+      break;
+    }
+  }
+
+  if (!validSignature) {
     throw new Error("Invalid challenge token signature.");
   }
 
@@ -119,4 +131,27 @@ export function verifyChallengeSignature(
     Buffer.from(message, "utf8"),
     decodeSignature(signedMessage),
   );
+}
+
+export function verifyUnlock(
+  secret: string | string[],
+  token: string,
+  address: string,
+  promptId: string,
+  signedMessage: string,
+  now = Date.now()
+) {
+  // 1. Verify the token payload (checks expiry, promptId, address, and server signature)
+  const payload = verifyChallengeToken(secret, token, address, promptId, now);
+
+  // 2. Reconstruct the challenge message that the user was required to sign
+  const message = buildChallengeMessage(payload);
+
+  // 3. Verify the wallet's cryptographic signature over the message
+  const isValid = verifyChallengeSignature(address, message, signedMessage);
+  if (!isValid) {
+    throw new Error("Invalid wallet signature for the unlock challenge.");
+  }
+
+  return payload;
 }
