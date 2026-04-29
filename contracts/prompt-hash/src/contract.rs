@@ -53,6 +53,7 @@ impl PromptHashTrait for PromptHashContract {
         wrapped_key: String,
         content_hash: BytesN<32>,
         price_stroops: i128,
+        max_supply: u64, // #119: 0 = unlimited
     ) -> Result<u128, Error> {
         creator.require_auth();
         require_not_paused(&env)?;
@@ -82,6 +83,7 @@ impl PromptHashTrait for PromptHashContract {
             price_stroops,
             active: true,
             sales_count: 0,
+            max_supply, // #119
         };
 
         Storage::save_prompt(&env, &prompt)?;
@@ -125,7 +127,13 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error> {
+    fn buy_prompt(
+        env: Env,
+        buyer: Address,
+        prompt_id: u128,
+        payment_amount_stroops: i128, // #121: must be >= prompt.price_stroops
+        referrer: Option<Address>,    // #118: optional referrer
+    ) -> Result<(), Error> {
         buyer.require_auth();
         require_not_paused(&env)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
@@ -138,6 +146,20 @@ impl PromptHashTrait for PromptHashContract {
             Error::AlreadyPurchased,
         )?;
 
+        // #121: payment must cover the base price
+        ensure(payment_amount_stroops >= prompt.price_stroops, Error::PaymentBelowPrice)?;
+
+        // #119: enforce max supply
+        if prompt.max_supply > 0 {
+            ensure(prompt.sales_count < prompt.max_supply, Error::MaxSupplyReached)?;
+        }
+
+        // #118: validate referrer is neither buyer nor creator
+        if let Some(ref ref_addr) = referrer {
+            ensure(*ref_addr != buyer, Error::InvalidReferrer)?;
+            ensure(*ref_addr != prompt.creator, Error::InvalidReferrer)?;
+        }
+
         Storage::set_reentrancy_guard(&env)?;
 
         let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
@@ -145,20 +167,54 @@ impl PromptHashTrait for PromptHashContract {
         let fee_percentage = Storage::get_fee_percentage(&env);
         ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
 
-        let fee_amount = prompt
-            .price_stroops
+        // Apply platform fee on total payment amount (#121 tip is included in fee base)
+        let fee_amount = payment_amount_stroops
             .checked_mul(fee_percentage as i128)
             .ok_or(Error::ArithmeticOverflow)?
             / MAX_BPS as i128;
-        let seller_amount = prompt
-            .price_stroops
+
+        let after_fee = payment_amount_stroops
             .checked_sub(fee_amount)
             .ok_or(Error::ArithmeticOverflow)?;
 
         let xlm = Storage::get_stellar_asset_contract(&env)?;
-        xlm.transfer_from(&this_contract, &buyer, &prompt.creator, &seller_amount);
+
+        // #118: three-way split when referrer is present
+        let creator_amount = if let Some(ref ref_addr) = referrer {
+            let referral_bps = Storage::get_referral_bps(&env);
+            let referral_amount = payment_amount_stroops
+                .checked_mul(referral_bps as i128)
+                .ok_or(Error::ArithmeticOverflow)?
+                / MAX_BPS as i128;
+            let creator_amt = after_fee
+                .checked_sub(referral_amount)
+                .ok_or(Error::ArithmeticOverflow)?;
+            if referral_amount > 0 {
+                xlm.transfer_from(&this_contract, &buyer, ref_addr, &referral_amount);
+            }
+            creator_amt
+        } else {
+            after_fee
+        };
+
+        xlm.transfer_from(&this_contract, &buyer, &prompt.creator, &creator_amount);
         if fee_amount > 0 {
             xlm.transfer_from(&this_contract, &buyer, &fee_wallet, &fee_amount);
+        }
+
+        // #121: emit tip event if payment exceeds base price
+        let tip = payment_amount_stroops
+            .checked_sub(prompt.price_stroops)
+            .unwrap_or(0);
+        if tip > 0 {
+            Events::emit_prompt_tipped(
+                &env,
+                prompt_id,
+                buyer.clone(),
+                prompt.creator.clone(),
+                prompt.price_stroops,
+                tip,
+            );
         }
 
         prompt.sales_count = prompt
@@ -174,8 +230,22 @@ impl PromptHashTrait for PromptHashContract {
             buyer,
             prompt.creator,
             prompt.price_stroops,
+            referrer,
         );
         Ok(())
+    }
+
+    // ── #118: Referral BPS admin functions ────────────────────────────────────
+
+    fn set_referral_bps(env: Env, referral_bps: u32) -> Result<(), Error> {
+        ensure(referral_bps <= MAX_BPS, Error::InvalidFeePercentage)?;
+        ownable::get_owner(&env).require_auth();
+        Storage::set_referral_bps(&env, referral_bps);
+        Ok(())
+    }
+
+    fn get_referral_bps(env: Env) -> u32 {
+        Storage::get_referral_bps(&env)
     }
 
     fn lease_prompt(
