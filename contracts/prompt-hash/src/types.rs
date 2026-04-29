@@ -23,6 +23,12 @@ pub enum Error {
     ArithmeticOverflow = 17,
     ReentrancyGuard = 18,
     ContractPaused = 19,
+    /// #119: Limited-edition supply exhausted.
+    MaxSupplyReached = 20,
+    /// #118: Referrer cannot be the buyer or the creator.
+    InvalidReferrer = 21,
+    /// #121: Payment amount is below the listed price.
+    PaymentBelowPrice = 22,
 }
 
 #[contracttype]
@@ -38,6 +44,8 @@ pub enum DataKey {
     Purchase(u128, Address),
     PauseStatus,
     Reentrancy,
+    /// #118: Global referral commission in basis points.
+    ReferralBps,
 }
 
 #[contracttype]
@@ -62,6 +70,8 @@ pub struct Prompt {
     pub price_stroops: i128,
     pub active: bool,
     pub sales_count: u64,
+    /// #119: Maximum number of licenses (0 = unlimited).
+    pub max_supply: u64,
 }
 
 pub trait PromptHashTrait {
@@ -85,6 +95,8 @@ pub trait PromptHashTrait {
         wrapped_key: String,
         content_hash: BytesN<32>,
         price_stroops: i128,
+        /// #119: 0 = unlimited supply.
+        max_supply: u64,
     ) -> Result<u128, Error>;
 
     fn set_prompt_sale_status(
@@ -101,7 +113,16 @@ pub trait PromptHashTrait {
         price_stroops: i128,
     ) -> Result<(), Error>;
 
-    fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error>;
+    /// #118 #119 #121: Extended buy_prompt with optional referrer, tip support, and supply check.
+    fn buy_prompt(
+        env: Env,
+        buyer: Address,
+        prompt_id: u128,
+        /// #121: Total payment in stroops (must be >= prompt.price_stroops).
+        payment_amount_stroops: i128,
+        /// #118: Optional referrer address (must not be buyer or creator).
+        referrer: Option<Address>,
+    ) -> Result<(), Error>;
     fn lease_prompt(
         env: Env,
         buyer: Address,
@@ -113,6 +134,9 @@ pub trait PromptHashTrait {
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
+    /// #118: Set global referral commission in basis points.
+    fn set_referral_bps(env: Env, referral_bps: u32) -> Result<(), Error>;
+    fn get_referral_bps(env: Env) -> u32;
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;
     fn get_fee_percentage(env: Env) -> u32;
