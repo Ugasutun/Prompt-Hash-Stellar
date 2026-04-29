@@ -4,7 +4,7 @@ use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::Error;
 extern crate std;
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String};
+use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, BytesN, Env, String};
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
@@ -364,4 +364,64 @@ fn test_arithmetic_safety_for_massive_prices() {
     
     assert_eq!(xlm_client.balance(&creator), expected_seller);
     assert_eq!(xlm_client.balance(&context.fee_wallet), expected_fee);
+}
+
+#[test]
+fn test_global_pause_blocks_mutations_but_not_reads() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    client.set_pause_status(&true);
+    assert!(client.get_pause_status());
+
+    let create_res = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/prompt.png"),
+        &String::from_str(&env, "Paused Create"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "preview"),
+        &String::from_str(&env, "ciphertext"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 1),
+        &10_000,
+    );
+    match create_res {
+        Err(Ok(Error::ContractPaused)) => {}
+        other => panic!("expected ContractPaused for create_prompt, got {:?}", other),
+    }
+
+    client.set_pause_status(&false);
+    let prompt_id = create_prompt(&env, &client, &creator, "Readable Prompt", 10_000);
+    client.set_pause_status(&true);
+
+    assert!(client.get_prompt(&prompt_id).id == prompt_id);
+    assert!(client.has_access(&creator, &prompt_id));
+}
+
+#[test]
+fn test_lease_prompt_grants_temporary_access_and_expires() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_000;
+    });
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Lease Prompt", 10_000);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+
+    client.lease_prompt(&buyer, &prompt_id, &600);
+    assert!(client.has_access(&buyer, &prompt_id));
+
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_700;
+    });
+    assert!(!client.has_access(&buyer, &prompt_id));
 }
