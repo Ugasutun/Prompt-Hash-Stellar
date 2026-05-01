@@ -226,6 +226,23 @@ impl Storage {
         Self::extend_key_ttl(env, &key);
     }
 
+    // ── #118: Referral BPS ────────────────────────────────────────────────────
+
+    pub fn set_referral_bps(env: &Env, referral_bps: u32) {
+        let key = DataKey::ReferralBps;
+        env.storage().persistent().set(&key, &referral_bps);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_referral_bps(env: &Env) -> u32 {
+        let key = DataKey::ReferralBps;
+        let bps: u32 = env.storage().persistent().get(&key).unwrap_or(500);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        bps
+    }
+
     pub fn set_pause_status(env: &Env, is_paused: bool) {
         let key = DataKey::PauseStatus;
         env.storage().persistent().set(&key, &is_paused);

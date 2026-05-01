@@ -22,6 +22,7 @@ struct PromptPriceUpdated {
     pub price_stroops: i128,
 }
 
+/// #118 #121: Updated to carry referral and tip data.
 #[contractevent]
 struct PromptPurchased {
     #[topic]
@@ -29,6 +30,18 @@ struct PromptPurchased {
     pub buyer: Address,
     pub creator: Address,
     pub price_stroops: i128,
+    pub referrer: Option<Address>,
+}
+
+/// #121: Emitted when the buyer pays more than the base price.
+#[contractevent]
+struct PromptTipped {
+    #[topic]
+    pub prompt_id: u128,
+    pub buyer: Address,
+    pub creator: Address,
+    pub base_price_stroops: i128,
+    pub tip_amount_stroops: i128,
 }
 
 #[contractevent]
@@ -83,12 +96,33 @@ impl Events {
         buyer: Address,
         creator: Address,
         price_stroops: i128,
+        referrer: Option<Address>,
     ) {
         PromptPurchased {
             prompt_id,
             buyer,
             creator,
             price_stroops,
+            referrer,
+        }
+        .publish(env);
+    }
+
+    /// #121: Emit tip event when payment exceeds base price.
+    pub fn emit_prompt_tipped(
+        env: &Env,
+        prompt_id: u128,
+        buyer: Address,
+        creator: Address,
+        base_price_stroops: i128,
+        tip_amount_stroops: i128,
+    ) {
+        PromptTipped {
+            prompt_id,
+            buyer,
+            creator,
+            base_price_stroops,
+            tip_amount_stroops,
         }
         .publish(env);
     }
